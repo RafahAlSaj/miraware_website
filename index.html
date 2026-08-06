@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Miraware - إملاء طبي (Demo)</title>
+  <link rel="stylesheet" href="./styles.css">
+  <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+  <script src="./app.js" defer></script>
+</head>
+<body>
+  <main class="card mmf-root" id="mmf-root">
+
+    <h1>واجهة إملاء طبي</h1>
+    <p class="lead">الإدخال الصوتي سريع + قاموس طبي وتصحيح إملائي عربي. زر “تجهيز للإرسال” فقط (بدون حفظ).</p>
+
+    <div class="field">
+      <label for="first-input">الحقل الأول</label>
+      <div class="input-wrap">
+        <input class="mmf-input" id="first-input" type="text" placeholder="اكتب هنا">
+        <button class="mic-btn" type="button" aria-label="تشغيل المايك للحقل الأول" data-target="#first-input">
+          <svg class="mic-icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M12 15a3 3 0 0 0 3-3V7a3 3 0 1 0-6 0v5a3 3 0 0 0 3 3Zm5-3a1 1 0 0 1 2 0 7 7 0 0 1-6 6.93V21h3a1 1 0 1 1 0 2H8a1 1 0 0 1 0-2h3v-2.07A7 7 0 0 1 5 12a1 1 0 0 1 2 0 5 5 0 0 0 10 0Z"></path>
+          </svg>
+        </button>
+      </div>
+    </div>
+
+    <div class="field">
+      <label for="second-input">الحقل الثاني</label>
+      <div class="input-wrap">
+        <input class="mmf-input" id="second-input" type="text" placeholder="اكتب هنا">
+        <button class="mic-btn" type="button" aria-label="تشغيل المايك للحقل الثاني" data-target="#second-input">
+          <svg class="mic-icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M12 15a3 3 0 0 0 3-3V7a3 3 0 1 0-6 0v5a3 3 0 0 0 3 3Zm5-3a1 1 0 0 1 2 0 7 7 0 0 1-6 6.93V21h3a1 1 0 1 1 0 2H8a1 1 0 0 1 0-2h3v-2.07A7 7 0 0 1 5 12a1 1 0 0 1 2 0 5 5 0 0 0 10 0Z"></path>
+          </svg>
+        </button>
+      </div>
+    </div>
+
+<div class="field">
+      <label for="x">الحقل الثاني</label>
+      <div class="input-wrap">
+        <input class="mmf-input" id="x" type="text" placeholder="اكتب هنا">
+        <button class="mic-btn" type="button" aria-label="تشغيل المايك للحقل الثاني" data-target="#x">
+          <svg class="mic-icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M12 15a3 3 0 0 0 3-3V7a3 3 0 1 0-6 0v5a3 3 0 0 0 3 3Zm5-3a1 1 0 0 1 2 0 7 7 0 0 1-6 6.93V21h3a1 1 0 1 1 0 2H8a1 1 0 0 1 0-2h3v-2.07A7 7 0 0 1 5 12a1 1 0 0 1 2 0 5 5 0 0 0 10 0Z"></path>
+          </svg>
+        </button>
+      </div>
+    </div>
+
+
+    <div class="actions">
+      <button id="review-btn" class="btn btn-primary mmf-review-btn" type="button">تجهيز للإرسال</button>
+    </div>
+
+    <p class="status mmf-status" id="status" aria-live="polite"></p>
+  </main>
+</body>
+</html>
+
