@@ -15,13 +15,14 @@
       maxAlternatives: 5,
       phraseHints: [],
       aggressiveTaaFix: false,
+      onPrepare: null,
       onSave: null
     },
     selectors: {
-      status: '.status, #status',
-      review: '#review-btn, .mmf-review-btn',
+      status: '.mmf-status, .status, #status',
+      review: '.mmf-prepare-btn, #prepare-btn, #review-btn, .mmf-review-btn',
       inputs: 'input.mmf-input[type=text], input[type=text]',
-      mic: '.mic-btn'
+      mic: '.mmf-mic-btn, .mic-btn'
     },
     dictionary: {
       aff: './vendor/dicts/ar.aff',
@@ -48,8 +49,51 @@
     ['اذا', 'إذا'],
     ['ايضا', 'أيضا'],
     ['لان', 'لأن'],
-    ['شي', 'شيء']
+    ['شي', 'شيء'],
+    ['الم', 'ألم'],
+
+    // Common speech-to-text misspellings of medical specialty/nisba terms
+    // (ه instead of ية). These aren't in the general Arabic dictionary's
+    // suffix rules (the ية ending follows conditional morphology this
+    // component doesn't model), so they're listed explicitly. Add more
+    // specialty terms here as needed - same "wrong -> correct" pattern.
+    ['جراحيه', 'جراحية'],
+    ['تنفسيه', 'تنفسية'],
+    ['هضميه', 'هضمية'],
+    ['بوليه', 'بولية'],
+    ['تناسليه', 'تناسلية'],
+    ['مخبريه', 'مخبرية'],
+    ['اشعاعيه', 'إشعاعية'],
+    ['تخديريه', 'تخديرية'],
+    ['وقائيه', 'وقائية'],
+    ['علاجيه', 'علاجية'],
+    ['تشخيصيه', 'تشخيصية'],
+    ['وراثيه', 'وراثية'],
+    ['مناعيه', 'مناعية'],
+    ['هرمونيه', 'هرمونية'],
+    ['غديه', 'غدية'],
+    ['نسائيه', 'نسائية']
   ]);
+
+  // Medical/clinic vocabulary that should always be treated as correct,
+  // even when the general-purpose Arabic dictionary doesn't happen to
+  // list a given term (drug names, specialty labels, some diagnoses).
+  // This is a starting list for a medical-centers deployment; extend it
+  // with terms specific to the clinic (department names, common drugs,
+  // frequent diagnoses).
+  const MEDICAL_SEED_WORDS = [
+    // Specialties / departments
+    'الباطنية', 'الجراحة', 'جراحة', 'العظام', 'النسائية', 'التوليد',
+    'الأطفال', 'الجلدية', 'العيون', 'القلبية', 'العصبية', 'النفسية',
+    'المسالك', 'البولية', 'الأشعة', 'المختبر', 'الأسنان', 'التخدير',
+    'الطوارئ', 'العلاج', 'الطبيعي', 'التغذية', 'الغدد', 'الصماء', 'الأورام',
+    'الروماتيزم', 'الجهاز', 'الهضمي', 'الأنف', 'الأذن', 'الحنجرة',
+    // Common symptoms / diagnoses
+    'الحمى', 'السعال', 'الصداع', 'الغثيان', 'القيء', 'الإسهال',
+    'الإمساك', 'الدوخة', 'الطفح', 'الجلدي', 'الحساسية', 'الجفاف',
+    'السكري', 'الربو', 'فقر', 'الدم', 'الالتهاب', 'الرئوي', 'جلطة',
+    'سكتة', 'دماغية', 'نوبة', 'قلبية', 'ضغط', 'الكوليسترول'
+  ];
 
   const DICTIONARY_CACHE = {
     promise: null,
@@ -368,16 +412,105 @@
   }
 
   /**
-   * Parse a Hunspell-style .dic file into a word list.
+   * Parse a Hunspell-style .dic file into {word, flags} entries.
+   *
+   * IMPORTANT: each line is "word/FLAGS" (e.g. "معاينة/ADACABAAC...").
+   * Earlier versions of this parser kept the raw line (including the
+   * "/FLAGS" suffix) as the word itself, which meant ~97% of this
+   * 369k-word dictionary (every entry that carries affix flags) never
+   * matched anything via exact or canonical lookup. Splitting on the
+   * first "/" is what actually makes the dictionary usable.
    * @param {string} dicText Dictionary text.
-   * @returns {Array<string>} Parsed words.
+   * @returns {Array<{word:string,flags:Array<string>}>} Parsed entries.
    */
-  function parseDictionaryWords(dicText){
+  function parseDictionaryEntries(dicText){
     return (dicText || '')
       .split(/\r?\n/)
       .map(function(line){ return line.trim(); })
       .filter(function(line){ return line && !/^#/.test(line); })
-      .filter(function(line, index){ return index !== 0 || !/^[0-9]+$/.test(line); });
+      .filter(function(line, index){ return index !== 0 || !/^[0-9]+$/.test(line); })
+      .map(function(line){
+        const slash = line.indexOf('/');
+        if(slash === -1) return { word: line, flags: [] };
+
+        const word = line.slice(0, slash);
+        const flagStr = line.slice(slash + 1);
+        // FLAG long: every flag is exactly two ASCII characters.
+        const flags = [];
+        for(let i = 0; i < flagStr.length; i += 2){
+          flags.push(flagStr.slice(i, i + 2));
+        }
+        return { word: word, flags: flags };
+      });
+  }
+
+  /**
+   * Extract only the SFX rules that unconditionally append a bare taa
+   * marbuta (ة) to a stem (e.g. مستعجل -> مستعجلة). This dictionary has
+   * ~1800 affix rule blocks covering full Arabic morphology (attached
+   * pronouns, verb conjugations, etc.); fully expanding all of them
+   * (as a generic Hunspell engine like Typo.js would) generates tens of
+   * millions of word forms and overflows a JS Map in the browser. We only
+   * need the masculine/feminine (ه vs ة) correction, so we deliberately
+   * extract just that narrow slice of the affix rules instead of doing
+   * full affix expansion.
+   * @param {string} affText Affix file content.
+   * @returns {Array<{flag:string,strip:string}>} Matching suffix rules.
+   */
+  function parseFeminineSuffixRules(affText){
+    const rules = [];
+    const lines = (affText || '').split(/\r?\n/);
+
+    for(let i = 0; i < lines.length; i++){
+      const parts = lines[i].split('\t');
+      if(parts[0] !== 'SFX' || parts.length < 5) continue;
+
+      const flag = parts[1];
+      const strip = parts[2];
+      const add = (parts[3] || '').split('/')[0];
+      const condition = parts[4];
+
+      // Only unconditional ("."), bare-ة suffix rules. Skip anything with
+      // extra characters (ته, اه, etc.) or a specific condition, since
+      // those encode more nuanced morphology we're not modeling here.
+      if(add !== 'ة' || condition !== '.') continue;
+
+      rules.push({ flag: flag, strip: strip === '0' ? '' : strip });
+    }
+
+    return rules;
+  }
+
+  /**
+   * Generate feminine (ة-suffixed) forms for dictionary entries that carry
+   * one of the matching suffix flags. One derived form per matching entry
+   * (not a full cross-product), so this stays proportional to dictionary
+   * size instead of exploding combinatorially.
+   * @param {Array<{word:string,flags:Array<string>}>} entries Dictionary entries.
+   * @param {Array<{flag:string,strip:string}>} rules Feminine suffix rules.
+   * @returns {Array<string>} Generated feminine word forms.
+   */
+  function generateFeminineForms(entries, rules){
+    if(!rules.length) return [];
+
+    const ruleByFlag = new Map();
+    rules.forEach(function(rule){ ruleByFlag.set(rule.flag, rule); });
+
+    const forms = [];
+    entries.forEach(function(entry){
+      for(let i = 0; i < entry.flags.length; i++){
+        const rule = ruleByFlag.get(entry.flags[i]);
+        if(!rule) continue;
+
+        const base = rule.strip && entry.word.slice(-rule.strip.length) === rule.strip
+          ? entry.word.slice(0, -rule.strip.length)
+          : entry.word;
+        forms.push(base + 'ة');
+        break;
+      }
+    });
+
+    return forms;
   }
 
   /**
@@ -387,11 +520,18 @@
    * @returns {{check:Function,suggest:Function}} Dictionary API.
    */
   function createLocalDictionaryEngine(aff, dic){
-    const words = parseDictionaryWords(dic);
-    const exactSet = new Set(words);
-    const canonicalMap = new Map();
+    const entries = parseDictionaryEntries(dic);
+    const baseWords = entries.map(function(entry){ return entry.word; });
 
-    words.forEach(function(word){
+    const feminineRules = parseFeminineSuffixRules(aff);
+    const feminineForms = generateFeminineForms(entries, feminineRules);
+
+    const exactSet = new Set(baseWords);
+    feminineForms.forEach(function(word){ exactSet.add(word); });
+    MEDICAL_SEED_WORDS.forEach(function(word){ exactSet.add(word); });
+
+    const canonicalMap = new Map();
+    baseWords.concat(feminineForms).forEach(function(word){
       const canonical = canonicalizeArabicWord(word);
       if(!canonicalMap.has(canonical)){
         canonicalMap.set(canonical, word);
@@ -402,8 +542,19 @@
       check: function(word){
         const value = String(word || '').trim();
         if(!value) return false;
+        // Strict on purpose: a word that only matches canonically (e.g.
+        // "معاينه" canonicalizes the same as "معاينة") is exactly the kind
+        // of mistake we want to correct, not treat as already valid.
         if(exactSet.has(value)) return true;
-        return canonicalMap.has(canonicalizeArabicWord(value));
+
+        // The definite article "ال" is written glued to its noun (as is
+        // normal Arabic spelling), but this dictionary only stores bare
+        // headwords. Re-check without it before giving up.
+        if(value.length > 2 && value.slice(0, 2) === 'ال'){
+          return exactSet.has(value.slice(2));
+        }
+
+        return false;
       },
 
       suggest: function(word, maxResults){
@@ -415,6 +566,16 @@
         const canonical = canonicalizeArabicWord(input);
         if(canonicalMap.has(canonical)){
           return [canonicalMap.get(canonical)];
+        }
+
+        if(input.length > 2 && input.slice(0, 2) === 'ال'){
+          const stem = input.slice(2);
+          if(exactSet.has(stem)) return ['ال' + stem];
+
+          const stemCanonical = canonicalizeArabicWord(stem);
+          if(canonicalMap.has(stemCanonical)){
+            return ['ال' + canonicalMap.get(stemCanonical)];
+          }
         }
 
         return [];
@@ -482,23 +643,36 @@
   }
 
   /**
+   * Split a chunk of text into alternating runs of "word-ish" characters
+   * (Arabic letters + digits) and everything else (punctuation, spaces,
+   * Latin text, etc). This allows correction to reach every Arabic run
+   * even when punctuation is glued directly to it without a space
+   * (e.g. "الحرارة،ارتفعت" or "الحمى؟نعم").
+   * @param {string} text Text to split.
+   * @returns {Array<string>} Ordered list of runs; rejoining them restores the input.
+   */
+  function splitIntoRuns(text){
+    const runs = (text || '').match(/[\u0600-\u06FF0-9]+|[^\u0600-\u06FF0-9]+/gu);
+    return runs || [];
+  }
+
+  /**
+   * Decide whether a run contains an actual Arabic letter worth checking
+   * against the dictionary (skips pure digits and pure punctuation runs).
+   * @param {string} run Text run.
+   * @returns {boolean} Whether the run is eligible for correction.
+   */
+  function isCorrectableRun(run){
+    return /[\u0621-\u063A\u0641-\u064A]/u.test(run || '');
+  }
+
+  /**
    * Extract the core Arabic token from surrounding punctuation.
+   * Kept for backward compatibility with callers that expect a single
+   * left/core/right split of a whitespace-delimited token.
    * @param {string} token Raw token.
    * @returns {{left:string,core:string,right:string}} Token parts.
    */
-  function splitTokenAffixes(token){
-    const match = token.match(/^([^\u0600-\u06FF0-9]*)([\u0600-\u06FF0-9]+)([^\u0600-\u06FF0-9]*)$/u);
-    if(!match){
-      return { left: '', core: token, right: '' };
-    }
-
-    return {
-      left: match[1] || '',
-      core: match[2] || '',
-      right: match[3] || ''
-    };
-  }
-
   /**
    * Harmonize a suggestion with the original token when taa marbuta is involved.
    * @param {string} original Original token core.
@@ -622,25 +796,25 @@
     return text.split(/(\s+)/).map(function(token){
       if(/^\s+$/.test(token)) return token;
 
-      const parts = splitTokenAffixes(token);
-      if(!parts.core) return token;
+      return splitIntoRuns(token).map(function(run){
+        if(!isCorrectableRun(run)) return run;
 
-      const core = parts.core;
-      const looksLikeTaaVariant = core.slice(-1) === 'ه' || canonicalizeArabicWord(core).slice(-1) === 'ه';
-      if(!looksLikeTaaVariant) return token;
+        const looksLikeTaaVariant = run.slice(-1) === 'ه' || canonicalizeArabicWord(run).slice(-1) === 'ه';
+        if(!looksLikeTaaVariant) return run;
 
-      const candidate = core.slice(-1) === 'ه' ? core : canonicalizeArabicWord(core);
-      const taaVariant = candidate.slice(0, -1) + 'ة';
+        const candidate = run.slice(-1) === 'ه' ? run : canonicalizeArabicWord(run);
+        const taaVariant = candidate.slice(0, -1) + 'ة';
 
-      try{
-        if(typoInstance.check(taaVariant)){
-          return parts.left + taaVariant + parts.right;
+        try{
+          if(typoInstance.check(taaVariant)){
+            return taaVariant;
+          }
+        }catch(error){
+          // Keep the original run if dictionary access fails.
         }
-      }catch(error){
-        // Keep the original token if dictionary access fails.
-      }
 
-      return token;
+        return run;
+      }).join('');
     }).join('');
   }
 
@@ -670,7 +844,9 @@
   }
 
   /**
-   * Apply typo-based corrections to a single token.
+   * Apply typo-based corrections to a single whitespace-delimited token,
+   * correcting every Arabic run inside it while leaving punctuation,
+   * digits, and non-Arabic runs untouched.
    * @param {string} token Raw token.
    * @param {object} typoInstance Typo dictionary instance.
    * @returns {string} Corrected token.
@@ -678,15 +854,15 @@
   function correctToken(state, token, typoInstance){
     if(/^\s+$/.test(token)) return token;
 
-    const parts = splitTokenAffixes(token);
-    if(!parts.core) return token;
-
-    const correctedCore = correctTokenCore(state, parts.core, typoInstance);
-    return parts.left + correctedCore + parts.right;
+    return splitIntoRuns(token).map(function(run){
+      if(!isCorrectableRun(run)) return run;
+      return correctTokenCore(state, run, typoInstance);
+    }).join('');
   }
 
   /**
-   * Apply typo corrections to a whole string while preserving spacing tokens.
+   * Apply typo corrections to a whole string while preserving spacing tokens
+   * and any punctuation glued to Arabic words.
    * @param {string} text Normalized text.
    * @param {object} typoInstance Typo dictionary instance.
    * @returns {string} Corrected text.
@@ -711,8 +887,11 @@
     if(typoInstance){
       try{
         const fixed = applyTypoCorrections(state, normalized, typoInstance);
-        setInputValue(input, fixed);
-        return fixed;
+        const refined = state.aggressiveTaaFix
+          ? preferDictionaryTaaMarbutaInText(state, fixed, typoInstance)
+          : fixed;
+        setInputValue(input, refined);
+        return refined;
       }catch(error){
         // Fall through to normalized text.
       }
@@ -981,7 +1160,7 @@
    * @param {object} logger Logger instance.
    */
   function bindUi(refs, state, logger){
-    refs.$root.on('click' + EVENT_NAMESPACE, '.mic-btn', function(){
+    refs.$root.on('click' + EVENT_NAMESPACE, CONFIG.selectors.mic, function(){
       logger.debug('mmf: mic clicked', this, $(this).data('target') || '');
       startRecognition(this, state, refs, logger);
     });
@@ -996,36 +1175,49 @@
         return;
       }
 
-      const values = refs.inputEls.slice(0, 2).map(function(input){
+      const values = refs.inputEls.map(function(input){
         return commitField(state, input, getInputValue(input));
       });
-      const first = values[0] || '';
-      const second = values[1] || '';
+      const hasContent = values.some(function(value){ return !!value; });
 
-      if(!first && !second){
+      if(!hasContent){
         setStatus(refs, CONFIG.statuses.emptySave, 'error');
         return;
       }
 
       setStatus(refs, CONFIG.statuses.saved, 'success');
 
-      if(typeof state.options.onSave === 'function'){
-        state.options.onSave({
-          firstValue: first,
-          secondValue: second,
-          raw: { first: first, second: second }
-        });
+      // Nothing is written to storage or sent over the network here.
+      // This only builds a plain-object payload and hands it to the host
+      // page via a callback option and a custom event, so the host page
+      // decides what "sending" means (submit a form, call an API, etc).
+      // firstValue/secondValue kept for backward compatibility with existing
+      // integrations; `values` covers any number of fields.
+      const payload = {
+        values: values,
+        firstValue: values[0] || '',
+        secondValue: values[1] || '',
+        raw: { first: values[0] || '', second: values[1] || '' }
+      };
+
+      const onPrepare = state.options.onPrepare || state.options.onSave;
+      if(typeof onPrepare === 'function'){
+        onPrepare(payload);
       }
 
-      refs.$root.trigger('mmf:save', { firstValue: first, secondValue: second });
+      // 'mmf:prepare' is the primary event name; 'mmf:save' is kept as a
+      // legacy alias so existing listeners keep working unchanged.
+      ['mmf:prepare', 'mmf:save'].forEach(function(eventName){
+        refs.$root.trigger(eventName, payload);
 
-      try{
-        refs.rootEl.dispatchEvent(new CustomEvent('mmf:save', {
-          detail: { firstValue: first, secondValue: second }
-        }));
-      }catch(error){
-        logger.warn('mmf: custom event dispatch failed', error);
-      }
+        try{
+          refs.rootEl.dispatchEvent(new CustomEvent(eventName, {
+            detail: payload
+          }));
+        }catch(error){
+          logger.warn('mmf: custom event dispatch failed', eventName, error);
+        }
+      });
     });
   }
 
@@ -1077,6 +1269,9 @@
         resetRecognitionState(state);
         refs.$root.off(EVENT_NAMESPACE);
         refs.$review.off(EVENT_NAMESPACE);
+        if(refs.$root.data(INSTANCE_DATA_KEY) === publicApi){
+          refs.$root.removeData(INSTANCE_DATA_KEY);
+        }
         if(window.__mmf === publicApi){
           window.__mmf = null;
         }
@@ -1086,8 +1281,13 @@
     return publicApi;
   }
 
+  const INSTANCE_DATA_KEY = 'mmfInstance';
+
   /**
-   * Initialize the plugin for a single root.
+   * Initialize the plugin for a single root. Idempotent: if this root was
+   * already initialized (e.g. an auto-bootstrapped demo root that a host
+   * page then re-initializes explicitly with custom options), the previous
+   * instance is torn down first so event handlers are never bound twice.
    * @param {jQuery} $root Root wrapper.
    * @param {object} options Plugin options.
    * @returns {object} Public API.
@@ -1095,6 +1295,11 @@
   function pluginFactory($root, options){
     const rootEl = $root.get(0);
     if(!rootEl) throw new Error('mmf: root element not found');
+
+    const existing = $root.data(INSTANCE_DATA_KEY);
+    if(existing && typeof existing.destroy === 'function'){
+      existing.destroy();
+    }
 
     const logger = createLogger('mmf');
     const resolvedOptions = $.extend({}, CONFIG.defaults, options || {});
@@ -1107,7 +1312,9 @@
     setStatus(refs, CONFIG.statuses.ready, 'success');
     void loadLocalDictionary(state, refs, logger);
 
-    return createPublicApi(state, refs, logger);
+    const publicApi = createPublicApi(state, refs, logger);
+    $root.data(INSTANCE_DATA_KEY, publicApi);
+    return publicApi;
   }
 
   $.fn.voiceMedicalForm = function(options){
@@ -1127,7 +1334,7 @@
    */
   $(function(){
     const $demo = $('.mmf-root').first();
-    if($demo.length && $demo.find('.mic-btn').length){
+    if($demo.length && $demo.find(CONFIG.selectors.mic).length){
       $demo.voiceMedicalForm();
     }
   });

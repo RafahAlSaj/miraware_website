@@ -5,58 +5,80 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Miraware - إملاء طبي (Demo)</title>
   <link rel="stylesheet" href="./styles.css">
-  <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+  <script src="./vendor/jquery/jquery.min.js"></script>
   <script src="./app.js" defer></script>
 </head>
-<body>
-  <main class="card mmf-root" id="mmf-root">
+<body class="mmf-demo-page">
+  <main class="mmf-card mmf-root" id="mmf-root">
 
-    <h1>واجهة إملاء طبي</h1>
-    <p class="lead">الإدخال الصوتي سريع + قاموس طبي وتصحيح إملائي عربي. زر “تجهيز للإرسال” فقط (بدون حفظ).</p>
+    <h1 class="mmf-title">واجهة إملاء طبي</h1>
+    <p class="mmf-lead">
+      الإدخال الصوتي سريع + قاموس طبي وتصحيح إملائي عربي.
+      زر "تجهيز للإرسال" لا يخزّن أي شيء ولا يرسل أي طلب شبكة بنفسه؛
+      هو فقط يجهّز نص الحقول ويبلّغ الصفحة المستضيفة عبر حدث/callback،
+      وهي اللي تقرر شو تسوي بالنص (submit فورم، استدعاء API، ...الخ).
+    </p>
 
-    <div class="field">
-      <label for="first-input">الحقل الأول</label>
-      <div class="input-wrap">
+    <div class="mmf-field">
+      <label class="mmf-label" for="first-input">الحقل الأول</label>
+      <div class="mmf-input-wrap">
         <input class="mmf-input" id="first-input" type="text" placeholder="اكتب هنا">
-        <button class="mic-btn" type="button" aria-label="تشغيل المايك للحقل الأول" data-target="#first-input">
-          <svg class="mic-icon" viewBox="0 0 24 24" aria-hidden="true">
+        <button class="mmf-mic-btn" type="button" aria-label="تشغيل المايك للحقل الأول" data-target="#first-input">
+          <svg class="mmf-mic-icon" viewBox="0 0 24 24" aria-hidden="true">
             <path d="M12 15a3 3 0 0 0 3-3V7a3 3 0 1 0-6 0v5a3 3 0 0 0 3 3Zm5-3a1 1 0 0 1 2 0 7 7 0 0 1-6 6.93V21h3a1 1 0 1 1 0 2H8a1 1 0 0 1 0-2h3v-2.07A7 7 0 0 1 5 12a1 1 0 0 1 2 0 5 5 0 0 0 10 0Z"></path>
           </svg>
         </button>
       </div>
     </div>
 
-    <div class="field">
-      <label for="second-input">الحقل الثاني</label>
-      <div class="input-wrap">
+    <div class="mmf-field">
+      <label class="mmf-label" for="second-input">الحقل الثاني</label>
+      <div class="mmf-input-wrap">
         <input class="mmf-input" id="second-input" type="text" placeholder="اكتب هنا">
-        <button class="mic-btn" type="button" aria-label="تشغيل المايك للحقل الثاني" data-target="#second-input">
-          <svg class="mic-icon" viewBox="0 0 24 24" aria-hidden="true">
+        <button class="mmf-mic-btn" type="button" aria-label="تشغيل المايك للحقل الثاني" data-target="#second-input">
+          <svg class="mmf-mic-icon" viewBox="0 0 24 24" aria-hidden="true">
             <path d="M12 15a3 3 0 0 0 3-3V7a3 3 0 1 0-6 0v5a3 3 0 0 0 3 3Zm5-3a1 1 0 0 1 2 0 7 7 0 0 1-6 6.93V21h3a1 1 0 1 1 0 2H8a1 1 0 0 1 0-2h3v-2.07A7 7 0 0 1 5 12a1 1 0 0 1 2 0 5 5 0 0 0 10 0Z"></path>
           </svg>
         </button>
       </div>
     </div>
 
-<div class="field">
-      <label for="x">الحقل الثاني</label>
-      <div class="input-wrap">
-        <input class="mmf-input" id="x" type="text" placeholder="اكتب هنا">
-        <button class="mic-btn" type="button" aria-label="تشغيل المايك للحقل الثاني" data-target="#x">
-          <svg class="mic-icon" viewBox="0 0 24 24" aria-hidden="true">
+    <div class="mmf-field">
+      <label class="mmf-label" for="third-input">الحقل الثالث</label>
+      <div class="mmf-input-wrap">
+        <input class="mmf-input" id="third-input" type="text" placeholder="اكتب هنا">
+        <button class="mmf-mic-btn" type="button" aria-label="تشغيل المايك للحقل الثالث" data-target="#third-input">
+          <svg class="mmf-mic-icon" viewBox="0 0 24 24" aria-hidden="true">
             <path d="M12 15a3 3 0 0 0 3-3V7a3 3 0 1 0-6 0v5a3 3 0 0 0 3 3Zm5-3a1 1 0 0 1 2 0 7 7 0 0 1-6 6.93V21h3a1 1 0 1 1 0 2H8a1 1 0 0 1 0-2h3v-2.07A7 7 0 0 1 5 12a1 1 0 0 1 2 0 5 5 0 0 0 10 0Z"></path>
           </svg>
         </button>
       </div>
     </div>
 
-
-    <div class="actions">
-      <button id="review-btn" class="btn btn-primary mmf-review-btn" type="button">تجهيز للإرسال</button>
+    <div class="mmf-actions">
+      <button id="prepare-btn" class="mmf-btn mmf-btn-primary mmf-prepare-btn" type="button">تجهيز للإرسال</button>
     </div>
 
-    <p class="status mmf-status" id="status" aria-live="polite"></p>
+    <p class="mmf-status" id="status" aria-live="polite"></p>
+
+    <pre class="mmf-demo-output" id="demo-output" aria-live="polite">-- النص المجهّز رح يظهر هون بعد الضغط على "تجهيز للإرسال" --</pre>
   </main>
+
+  <script>
+    // This block is demo-only wiring: it shows how a host page listens for
+    // the component's "mmf:prepare" event. The component itself never
+    // touches localStorage/sessionStorage/network - it only calls this
+    // handler with a plain-object payload.
+    document.addEventListener('DOMContentLoaded', function(){
+      var root = document.getElementById('mmf-root');
+      var output = document.getElementById('demo-output');
+
+      root.addEventListener('mmf:prepare', function(event){
+        if(output){
+          output.textContent = JSON.stringify(event.detail, null, 2);
+        }
+      });
+    });
+  </script>
 </body>
 </html>
-
